@@ -31,17 +31,13 @@ export async function convert(inputFile: File): Promise<File[]> {
     if (sampleType === null) {
         throw new Error(`Cannot handle bits per sample ${inputWav.fmt.bitsPerSample}`);
     }
-    console.log(inputWav);
     const inputSamples = new sampleType(
         inputWav.data.samples.buffer,
         inputWav.data.samples.byteOffset,
         inputWav.data.samples.byteLength / sampleType.BYTES_PER_ELEMENT,
     )
-    console.log(inputSamples);
     const nSamples = inputWav.data.samples.byteLength / inputWav.fmt.blockAlign;
-    console.log("Sample count", nSamples);
     const stride = inputWav.fmt.blockAlign / sampleType.BYTES_PER_ELEMENT;
-    console.log("Stride", stride);
     const lastModified = Date.now();
     const outputWavs = Array.from({length: inputWav.fmt.numChannels}, (_, chanNum) => {
         const outputSamples = new sampleType(nSamples);
@@ -49,7 +45,6 @@ export async function convert(inputFile: File): Promise<File[]> {
             const idx = stride * sampNum + chanNum;
             outputSamples[sampNum] = inputSamples[idx];
         }
-        console.log(outputSamples);
         const outputWav = new wavefile.WaveFile();
         outputWav.fromScratch(
             1, inputWav.fmt.sampleRate,
