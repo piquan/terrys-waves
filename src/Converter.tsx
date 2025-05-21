@@ -60,10 +60,6 @@ function ConvertSuccess({monoFiles}: {monoFiles: DownloadableFile[]}) {
         </Box>;
 }
 
-function sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}  
-
 // Indirection here is to make it easier to test the conversion function.
 async function convertFile(stereoFile: File): Promise<File[]> {
     return await convert(stereoFile);
