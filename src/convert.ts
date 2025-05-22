@@ -23,7 +23,19 @@ export async function convert(inputFile: File): Promise<File[]> {
            inputWav.fmt.subformat[0] === 1))) {
         throw new Error("Cannot handle this WAV encoding");
     }
-    const sampleType = (
+
+    // TypeScript has a hard time dealing with merging the different
+    // constructors, so make a type that's both general enough to be
+    // constructed and specific enough to be used.
+    interface SampleTypeConstructor {
+        readonly BYTES_PER_ELEMENT: number;
+        new (
+            buffer: ArrayBuffer | number,
+            offset?: number,
+            length?: number
+        ): Uint8Array | Int16Array | Int32Array;
+    }
+    const sampleType: SampleTypeConstructor | null = (
         inputWav.bitDepth === "8" ? Uint8Array :
         inputWav.bitDepth === "16" ? Int16Array :
         inputWav.bitDepth === "32" ? Int32Array :
@@ -31,11 +43,12 @@ export async function convert(inputFile: File): Promise<File[]> {
     if (sampleType === null) {
         throw new Error(`Cannot handle bits per sample ${inputWav.fmt.bitsPerSample}`);
     }
+
     const inputSamples = new sampleType(
         inputWav.data.samples.buffer,
         inputWav.data.samples.byteOffset,
         inputWav.data.samples.byteLength / sampleType.BYTES_PER_ELEMENT,
-    )
+    );
     const nSamples = inputWav.data.samples.byteLength / inputWav.fmt.blockAlign;
     const stride = inputWav.fmt.blockAlign / sampleType.BYTES_PER_ELEMENT;
     const lastModified = Date.now();
