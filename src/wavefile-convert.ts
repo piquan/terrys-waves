@@ -1,5 +1,14 @@
 import * as wavefile from 'wavefile';
 
+export interface SampleTypeConstructor {
+    readonly BYTES_PER_ELEMENT: number;
+    new (
+        buffer: ArrayBuffer | number,
+        offset?: number,
+        length?: number
+    ): Uint8Array | Int16Array | Int32Array | Float32Array;
+};
+
 const channelLayout = [
     "FL", "FR", "FC", "LF", "BL", "BR", "FLC", "FRC", "BC",
     "SL", "SR", "TC", "TFL", "TFC", "TFR", "TBL", "TBC", "TBR"];
@@ -19,26 +28,21 @@ export async function wavefileConvert(inputFile: File): Promise<File[]> {
     const inputWav: any = new wavefile.WaveFile(inputUint8Array);
 
     if (!(inputWav.fmt.audioFormat === 1 ||
+          inputWav.fmt.audioFormat === 3 ||
           (inputWav.fmt.audioFormat === 65534 &&
-           inputWav.fmt.subformat[0] === 1))) {
+           (inputWav.fmt.subformat[0] === 1 ||
+            inputWav.fmt.subformat[0] === 3)))) {
         throw new Error("Cannot handle this WAV encoding");
     }
 
     // TypeScript has a hard time dealing with merging the different
     // constructors, so make a type that's both general enough to be
     // constructed and specific enough to be used.
-    interface SampleTypeConstructor {
-        readonly BYTES_PER_ELEMENT: number;
-        new (
-            buffer: ArrayBuffer | number,
-            offset?: number,
-            length?: number
-        ): Uint8Array | Int16Array | Int32Array;
-    }
     const sampleType: SampleTypeConstructor | null = (
         inputWav.bitDepth === "8" ? Uint8Array :
         inputWav.bitDepth === "16" ? Int16Array :
         inputWav.bitDepth === "32" ? Int32Array :
+        inputWav.bitDepth === "32f" ? Float32Array :
         null);
     if (sampleType === null) {
         throw new Error(`Cannot handle bits per sample ${inputWav.fmt.bitsPerSample}`);

@@ -1,6 +1,9 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import type { LogEvent } from '@ffmpeg/ffmpeg';
+import * as wavefile from 'wavefile';
+
+import type { SampleTypeConstructor } from './wavefile-convert.ts';
 
 // These are the channel assignments for WAV files that don't have one
 // set in the file.
@@ -20,7 +23,22 @@ const wavChannelLayout = [
 // It also will do that if you create a pcm_s24le file.  Terry's equipment
 // can handle pcm_s24le (not sure about pcm_f32le), but not with the
 // extensible header.
-const allowedCodecs = {"pcm_u8": true, "pcm_s16le": true};
+//
+// This structure lists the acceptable output codecs.  Also, the mapping
+// shows whether header conversion is needed, and if so, what the format
+// code for wavefile and the sample array format is.  (For null, the
+// data is passed through getSamples, which goes through float64s.)
+//
+// Note that float32s will trigger a warning with sox, since it wants
+// to see extensible headers on everything that's not PCM, including
+// floats.
+const outputCodecs: Record<string, [boolean, string, SampleTypeConstructor | null]> = {
+    "pcm_u8": [false, "8", Uint8Array],
+    "pcm_s16le": [false, "16", Int16Array],
+    "pcm_s24le": [true, "24", null],
+    "pcm_s32le": [true, "32", Int32Array],
+    "pcm_f32le": [true, "32f", Float32Array],
+};
 
 let loadParameters: Promise<object> | null = null;
 
@@ -79,15 +97,18 @@ export async function ffmpegConvert(inputFile: File): Promise<File[]> {
     ffmpeg.off('log', logToFfprobe);
     const ffprobeJson = (await ffmpeg.readFile('ffprobe.json', 'utf8')) as string;
     const ffprobe = JSON.parse(ffprobeJson);
-    console.log("Input structure:", ffprobe);
+    console.log("Input file structure:", ffprobe);
     if (!(ffprobe.streams?.length))
         throw new Error("No audio streams found");
     if (ffprobe.streams.length > 1)
         throw new Error("Multiple audio streams (not just channels) found");
     const streamFmt = ffprobe.streams[0];
     const channelCount = streamFmt.channels;
-    const codec = streamFmt.codec_name in allowedCodecs ? streamFmt.codec_name :
-                  //streamFmt.bits_per_sample > 16 ? "pcm_s24le" :
+    const codec = streamFmt.codec_name in outputCodecs ? streamFmt.codec_name :
+                  streamFmt.bits_per_sample > 24 ? (
+                      streamFmt.sample_fmt === "flt" ? "pcm_f32le" :
+                      "pcm_s32le") :
+                  streamFmt.bits_per_sample > 16 ? "pcm_s24le" :
                   streamFmt.bits_per_sample > 8 ? "pcm_s16le" :
                   "pcm_u8";
 
@@ -121,14 +142,34 @@ export async function ffmpegConvert(inputFile: File): Promise<File[]> {
     // entire toolchain supports that.
     const rv = [];
     const lastModified = Date.now();
+    const [reformat, formatCode, sampleType] = outputCodecs[codec];
     for (let ch = 0; ch < channelCount; ch++) {
-        const fileData = (await ffmpeg.readFile(outputFileNames[ch], 'binary') as Uint8Array);
+        let fileData = await ffmpeg.readFile(
+            outputFileNames[ch], 'binary') as Uint8Array;
+
+        // We have to reformat the extensible header if ffmpeg emitted one,
+        // which it does on pretty much anything over 16 bits.
+        if (reformat) {
+            const inputWav: any = new wavefile.WaveFile(fileData);
+            const inputSamples =
+                sampleType === null ? inputWav.getSamples(true) :
+                new sampleType(
+                    inputWav.data.samples.buffer,
+                    inputWav.data.samples.byteOffset,
+                    inputWav.data.samples.byteLength / sampleType.BYTES_PER_ELEMENT,
+                );
+            const outputWav = new wavefile.WaveFile;
+            outputWav.fromScratch(1, 48000, formatCode, inputSamples);
+            fileData = outputWav.toBuffer();
+        }
+
         const channelName = (!!streamFmt.channel_layout) ?
                             `ch${ch + 1}` :
                             wavChannelLayout[ch];
         const file = new File([fileData],
                               `${prefix}${channelName}.wav`,
                               {type: "audio/vnd.wave", lastModified});
+
         rv.push(file);
     }
 
