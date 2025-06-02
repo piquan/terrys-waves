@@ -66,7 +66,7 @@ function ConvertSuccess({monoFiles}: {monoFiles: DownloadableFile[]}) {
 
 export default function Converter() {
     const [experimental, setExperimental] = React.useState(false);
-    const onExperimental = React.useCallback(e => {
+    const onExperimental = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         setExperimental(e.target.checked);
     }, [setExperimental]);
 

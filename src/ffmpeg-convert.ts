@@ -1,5 +1,6 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
+import type { LogEvent } from '@ffmpeg/ffmpeg';
 
 // These are the channel assignments for WAV files that don't have one
 // set in the file.
@@ -12,14 +13,16 @@ const wavChannelLayout = [
     "SL", "SR", "TC", "TFL", "TFC", "TFR", "TBL", "TBC", "TBR"];
 
 // Terry's equipment seems to not recognize files with a
-// WAVE_FORMAT_EXTENSIBLE structure.  For PCM / float without the extensible
-// header, the only valid formats are u8, s16, and f32.  (There's also
-// other formats like uLaw / ALaw, but I don't know if his equipment
-// supports them.)  The file structure would can express (for instance)
-// 24-bit, but the spec says that these aren't allowed.
-const allowedCodecs = {"pcm_u8": true, "pcm_s16le": true, "pcm_f32le": true};
+// WAVE_FORMAT_EXTENSIBLE structure.  ffmpeg will create such a header
+// in many conditions.  For reasons I can't figure out, it will do
+// that if you create a pcm_f32le file.
+// https://github.com/FFmpeg/FFmpeg/blob/688f3944cedf36963cf81fbd56e8022e89d038c3/libavformat/riffenc.c#L79
+// It also will do that if you create a pcm_s24le file.  Terry's equipment
+// can handle pcm_s24le (not sure about pcm_f32le), but not with the
+// extensible header.
+const allowedCodecs = {"pcm_u8": true, "pcm_s16le": true};
 
-let loadParameters: Promise | null = null;
+let loadParameters: Promise<object> | null = null;
 
 export async function ffmpegConvert(inputFile: File): Promise<File[]> {
     const dotPos = inputFile.name.lastIndexOf(".");
@@ -57,8 +60,8 @@ export async function ffmpegConvert(inputFile: File): Promise<File[]> {
     const inputFilename = `input${suffix}`;
     await ffmpeg.writeFile(inputFilename, await fetchFile(inputFile));
 
-    const ffprobeMessageArray = [];
-    const logToFfprobe = ({ message }) => {
+    const ffprobeMessageArray: string[] = [];
+    const logToFfprobe = ({ message }: LogEvent) => {
         console.log(message);
         ffprobeMessageArray.push(message);
     };
@@ -74,7 +77,7 @@ export async function ffmpegConvert(inputFile: File): Promise<File[]> {
         throw new Error(`Error reading input file:\n${ffprobeMessageArray.join("\n")}`);
     }
     ffmpeg.off('log', logToFfprobe);
-    const ffprobeJson = await ffmpeg.readFile('ffprobe.json', 'utf8');
+    const ffprobeJson = (await ffmpeg.readFile('ffprobe.json', 'utf8')) as string;
     const ffprobe = JSON.parse(ffprobeJson);
     console.log("Input structure:", ffprobe);
     if (!(ffprobe.streams?.length))
@@ -83,14 +86,14 @@ export async function ffmpegConvert(inputFile: File): Promise<File[]> {
         throw new Error("Multiple audio streams (not just channels) found");
     const streamFmt = ffprobe.streams[0];
     const channelCount = streamFmt.channels;
-    const codec = allowedCodecs[streamFmt.codec_name] ? streamFmt.codec_name :
-                  streamFmt.bits_per_sample > 16 ? "pcm_f32le" :
+    const codec = streamFmt.codec_name in allowedCodecs ? streamFmt.codec_name :
+                  //streamFmt.bits_per_sample > 16 ? "pcm_s24le" :
                   streamFmt.bits_per_sample > 8 ? "pcm_s16le" :
                   "pcm_u8";
 
     console.log("Starting ffmpeg");
-    const ffmpegMessageArray = [];
-    const logToFfmpeg = ({ message }) => {
+    const ffmpegMessageArray: string[] = [];
+    const logToFfmpeg = ({ message }: LogEvent) => {
         ffmpegMessageArray.push(message);
         console.log(message);
     };
@@ -119,12 +122,11 @@ export async function ffmpegConvert(inputFile: File): Promise<File[]> {
     const rv = [];
     const lastModified = Date.now();
     for (let ch = 0; ch < channelCount; ch++) {
-        const fileData = await ffmpeg.readFile(outputFileNames[ch], 'binary');
-        const fileArray = new Uint8Array(fileData);
+        const fileData = (await ffmpeg.readFile(outputFileNames[ch], 'binary') as Uint8Array);
         const channelName = (!!streamFmt.channel_layout) ?
                             `ch${ch + 1}` :
                             wavChannelLayout[ch];
-        const file = new File([fileArray],
+        const file = new File([fileData],
                               `${prefix}${channelName}.wav`,
                               {type: "audio/vnd.wave", lastModified});
         rv.push(file);
