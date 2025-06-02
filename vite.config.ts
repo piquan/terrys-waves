@@ -5,4 +5,7 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
     plugins: [ react() ],
     base: '/terrys-waves/',
+    optimizeDeps: {
+        exclude: ["@ffmpeg/ffmpeg", "@ffmpeg/util"],
+    },
 })

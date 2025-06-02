@@ -6,7 +6,7 @@ const channelLayout = [
 
 // This is async because we need to read the input file, which is
 // an async operation.  Otherwise, this could all be synchronous.
-export async function convert(inputFile: File): Promise<File[]> {
+export async function wavefileConvert(inputFile: File): Promise<File[]> {
     const dotPos = inputFile.name.lastIndexOf(".");
     const [prefix, suffix] = (
         dotPos === -1 ? [inputFile.name + "-", ".wav"] :

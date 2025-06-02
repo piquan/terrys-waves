@@ -3,6 +3,8 @@ import * as React from 'react';
 import { Box, Typography } from '@mui/material';
 import {
     Alert,
+    FormControlLabel,
+    FormGroup,
     Icon,
     List,
     ListItem,
@@ -10,9 +12,11 @@ import {
     ListItemText,
     Link,
     Skeleton,
+    Switch,
 } from '@mui/material';
 
-import { convert } from './convert.ts';
+import { ffmpegConvert } from './ffmpeg-convert.ts';
+import { wavefileConvert } from './wavefile-convert.ts';
 
 interface DownloadableFile {
     filename: string;
@@ -60,12 +64,12 @@ function ConvertSuccess({monoFiles}: {monoFiles: DownloadableFile[]}) {
         </Box>;
 }
 
-// Indirection here is to make it easier to test the conversion function.
-async function convertFile(stereoFile: File): Promise<File[]> {
-    return await convert(stereoFile);
-};
-
 export default function Converter() {
+    const [experimental, setExperimental] = React.useState(false);
+    const onExperimental = React.useCallback(e => {
+        setExperimental(e.target.checked);
+    }, [setExperimental]);
+
     // TODO: Update to use MuiFileInput.  That doesn't yet work with MUI 7,
     // but there's a PR and merge request for it.  See
     // https://github.com/viclafouch/mui-file-input/issues/60
@@ -96,7 +100,7 @@ export default function Converter() {
         setProcessing(true);
         void (async () => {
             try {
-                const newMonoFiles = await convertFile(stereoFile);
+                const newMonoFiles = await (experimental ? ffmpegConvert : wavefileConvert)(stereoFile);
                 setMonoFiles(newMonoFiles);
                 setError(null);
             } catch (e) {
@@ -110,7 +114,7 @@ export default function Converter() {
                 setProcessing(false);
             }
         })();
-    }, [stereoFile]);
+    }, [stereoFile, experimental]);
     
     const [convertDisplay, setConvertDisplay] = React.useState(<></>);
     React.useEffect(() => {
@@ -139,10 +143,14 @@ export default function Converter() {
         }
     }, [processing, error, monoFiles]);
 
-    return (<Box>
+    return (
+        <Box>
+            <FormGroup>
+                <FormControlLabel control={<Switch checked={experimental} onChange={onExperimental} />} label="Use Experimental Conversion" />
+            </FormGroup>
             <Box>
                 <Typography>Stereo input file:</Typography>
-                <input accept=".wav,.wave,audio/vnd.wave,audio/wav,audio/wave,audio/x-wav" type="file" onChange={stereoFileChanged} />
+                <input accept={experimental ? "audio/*" : ".wav,.wave,audio/vnd.wave,audio/wav,audio/wave,audio/x-wav"} type="file" onChange={stereoFileChanged} />
             </Box>
             {convertDisplay}
         </Box>);
